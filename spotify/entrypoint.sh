@@ -28,6 +28,24 @@ fi
 
 login-helper &
 
+# The client never reconnects to PulseAudio after the audio server restarts
+# (e.g. an image update), so it would stay silent. When the socket is
+# recreated, restart the client (the loop below brings it back).
+PULSE_SOCKET="${PULSE_SERVER#unix:}"
+(
+  last=$(stat -c %i "$PULSE_SOCKET" 2>/dev/null || echo none)
+  while sleep 5; do
+    now=$(stat -c %i "$PULSE_SOCKET" 2>/dev/null || echo none)
+    if [ "$now" != none ] && [ "$now" != "$last" ]; then
+      if [ "$last" != none ]; then
+        echo "PulseAudio restarted; restarting spotify"
+        pkill -f /usr/share/spotify/spotify || true
+      fi
+      last=$now
+    fi
+  done
+) &
+
 # Restart the client if it exits (e.g. after an update prompt or crash).
 while true; do
   # Stale Chromium profile locks (after a hostname change or crash) make the
