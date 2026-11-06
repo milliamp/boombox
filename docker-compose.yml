@@ -16,6 +16,8 @@ services:
   pulseaudio:
     image: ghcr.io/milliamp/boombox-pulseaudio:${IMAGE_TAG:-latest}
     container_name: boombox-pulseaudio
+    labels:
+      com.centurylinklabs.watchtower.scope: boombox
     network_mode: host
     security_opt:
       - apparmor=unconfined
@@ -30,6 +32,8 @@ services:
   spotify-1:
     image: ghcr.io/milliamp/boombox-spotify:${IMAGE_TAG:-latest}
     container_name: boombox-spotify-1
+    labels:
+      com.centurylinklabs.watchtower.scope: boombox
     hostname: ${DEVICE_NAME:-Boom}
     shm_size: 512m
     depends_on: [pulseaudio]
@@ -50,6 +54,8 @@ services:
   spotify-2:
     image: ghcr.io/milliamp/boombox-spotify:${IMAGE_TAG:-latest}
     container_name: boombox-spotify-2
+    labels:
+      com.centurylinklabs.watchtower.scope: boombox
     hostname: ${DEVICE_NAME:-Boom}
     shm_size: 512m
     depends_on: [pulseaudio]
@@ -65,4 +71,16 @@ services:
     volumes:
       - ${DATA_DIR:-/data/boombox}/spotify-2:/home/spotify
       - ${DATA_DIR:-/data/boombox}/pulse-run:/run/pulse
+    restart: unless-stopped
+
+  # Pulls new images (e.g. the weekly Spotify client rebuild) for this stack's
+  # containers only. Portainer CE can't re-pull images on GitOps updates.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: boombox-watchtower
+    command: ["--scope", "boombox", "--schedule", "0 0 4 * * *", "--cleanup"]
+    labels:
+      com.centurylinklabs.watchtower.scope: boombox
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
