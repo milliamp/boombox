@@ -1,8 +1,9 @@
 #!/bin/sh
 # Official Spotify desktop client, headless, as a Spotify Connect speaker.
 #   DISPLAY_NUM   X display number (any; containers have their own /tmp)
-#   NOVNC_PORT    browser VNC port for the one-time login (default 6091)
-#   VNC_PASSWORD  set it to enable noVNC for logging in; unset it afterwards
+#   LOGIN_PORT    login-helper HTTP port: /status and /qr.png (default 8091)
+#   NOVNC_PORT    browser VNC port, for debugging (default 6091)
+#   VNC_PASSWORD  set it to enable noVNC
 set -eu
 DISPLAY_NUM="${DISPLAY_NUM:-91}"
 export DISPLAY=":${DISPLAY_NUM}"
@@ -21,6 +22,8 @@ if [ -n "${VNC_PASSWORD:-}" ]; then
   websockify --web /usr/share/novnc "$NOVNC_PORT" "localhost:$VNC_PORT" >/dev/null 2>&1 &
   echo "noVNC: http://<host>:${NOVNC_PORT}/vnc.html"
 fi
+
+login-helper &
 
 # Restart the client if it exits (e.g. after an update prompt or crash).
 while true; do

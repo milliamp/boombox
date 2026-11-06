@@ -3,8 +3,9 @@
 # Portainer: Stacks -> Add stack -> Repository (this repo) or paste this file.
 # Environment variables (Portainer "Environment variables" section):
 #   DATA_DIR        host folder for state            (default /data/boombox)
-#   VNC_PASSWORD    set to enable the noVNC login pages (ports 6091/6092);
-#                   remove it and redeploy once both accounts are logged in
+#   VNC_PASSWORD    optional: enables noVNC on ports 6091/6092 for debugging.
+#                   Logging in is done from Home Assistant (login-helper on
+#                   127.0.0.1:8091/8092, see ha/packages/boombox.yaml).
 #
 # One-time host setup (see README): pair + trust the speaker with the host's
 # BlueZ. The pulseaudio container talks to BlueZ over the system D-Bus, which
@@ -34,9 +35,12 @@ services:
     depends_on: [pulseaudio]
     environment:
       DISPLAY_NUM: "91"
+      LOGIN_PORT: "8091"
       NOVNC_PORT: "6091"
       VNC_PASSWORD: ${VNC_PASSWORD:-}
     ports:
+      # login-helper for Home Assistant (host network) only: not on the LAN
+      - "127.0.0.1:8091:8091"
       - "6091:6091"
     volumes:
       - ${DATA_DIR:-/data/boombox}/spotify-1:/home/spotify
@@ -51,9 +55,12 @@ services:
     depends_on: [pulseaudio]
     environment:
       DISPLAY_NUM: "92"
+      LOGIN_PORT: "8092"
       NOVNC_PORT: "6092"
       VNC_PASSWORD: ${VNC_PASSWORD:-}
     ports:
+      # login-helper for Home Assistant (host network) only: not on the LAN
+      - "127.0.0.1:8092:8092"
       - "6092:6092"
     volumes:
       - ${DATA_DIR:-/data/boombox}/spotify-2:/home/spotify

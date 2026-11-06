@@ -1,0 +1,93 @@
+# boombox: Spotify client login state in Home Assistant (no VNC needed).
+#
+# Install: copy to <config>/packages/boombox.yaml and enable packages:
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# Each boombox-spotify container serves its login state on 127.0.0.1:809N
+# (reachable because HA runs with host networking). While a client is logged
+# out you get a notification with a link: tap it on a phone that's logged in to
+# the Spotify account you want, and approve. Or scan the QR image entity.
+
+rest:
+  - resource: http://127.0.0.1:8091/status
+    scan_interval: 30
+    timeout: 10
+    sensor:
+      - name: Boombox Spotify 1 login
+        unique_id: boombox_spotify_1_login
+        icon: mdi:spotify
+        value_template: >-
+          {{ 'logged_in' if value_json.logged_in else
+             ('needs_login' if value_json.login_url else 'starting') }}
+        json_attributes: [login_url, code, client_running, checked_at]
+  - resource: http://127.0.0.1:8092/status
+    scan_interval: 30
+    timeout: 10
+    sensor:
+      - name: Boombox Spotify 2 login
+        unique_id: boombox_spotify_2_login
+        icon: mdi:spotify
+        value_template: >-
+          {{ 'logged_in' if value_json.logged_in else
+             ('needs_login' if value_json.login_url else 'starting') }}
+        json_attributes: [login_url, code, client_running, checked_at]
+
+template:
+  - image:
+      # The URL changes with the pairing code, which makes HA re-fetch it.
+      - name: Boombox Spotify 1 login QR
+        unique_id: boombox_spotify_1_login_qr
+        url: "http://127.0.0.1:8091/qr.png?code={{ state_attr('sensor.boombox_spotify_1_login', 'code') }}"
+        availability: "{{ is_state('sensor.boombox_spotify_1_login', 'needs_login') }}"
+      - name: Boombox Spotify 2 login QR
+        unique_id: boombox_spotify_2_login_qr
+        url: "http://127.0.0.1:8092/qr.png?code={{ state_attr('sensor.boombox_spotify_2_login', 'code') }}"
+        availability: "{{ is_state('sensor.boombox_spotify_2_login', 'needs_login') }}"
+
+automation:
+  - id: boombox_spotify_login_needed
+    alias: Boombox - Spotify client needs login
+    mode: parallel
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.boombox_spotify_1_login
+          - sensor.boombox_spotify_2_login
+        to: needs_login
+        for: "00:01:00"
+      - trigger: state
+        entity_id:
+          - sensor.boombox_spotify_1_login
+          - sensor.boombox_spotify_2_login
+        attribute: code
+    conditions:
+      - condition: template
+        value_template: "{{ is_state(trigger.entity_id, 'needs_login') }}"
+    actions:
+      - action: persistent_notification.create
+        data:
+          notification_id: "{{ trigger.entity_id }}"
+          title: Boombox needs a Spotify login
+          message: >-
+            **{{ state_attr(trigger.entity_id, 'friendly_name') | replace(' login', '') }}**
+            is logged out.
+
+            On a phone logged in to the Spotify account it should use, tap
+            [{{ state_attr(trigger.entity_id, 'login_url') }}]({{ state_attr(trigger.entity_id, 'login_url') }})
+            and approve. Code: **{{ state_attr(trigger.entity_id, 'code') }}**.
+            (Or scan the QR code in the matching "login QR" image entity.)
+
+  - id: boombox_spotify_logged_in
+    alias: Boombox - Spotify client logged in
+    mode: parallel
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.boombox_spotify_1_login
+          - sensor.boombox_spotify_2_login
+        to: logged_in
+    actions:
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: "{{ trigger.entity_id }}"
