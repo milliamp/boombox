@@ -13,6 +13,13 @@ blueprint:
       selector:
         entity:
           domain: switch
+    speaker_audio:
+      name: Speaker audio connected sensor
+      description: e.g. the UE BOOM integration's "Audio connected" sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: connectivity
     spotify_players:
       name: Spotify accounts
       description: The Spotify integration's media player for each account
@@ -40,14 +47,14 @@ blueprint:
           min: 0
           max: 100
           unit_of_measurement: "%"
-    connect_delay:
-      name: Seconds to wait after power-on
+    connect_timeout:
+      name: Seconds to wait for the audio connection
       description: Time for the speaker to wake and connect its audio
-      default: 8
+      default: 20
       selector:
         number:
-          min: 0
-          max: 30
+          min: 5
+          max: 60
 
 mode: queued
 max: 3
@@ -74,7 +81,8 @@ variables:
   device: !input device_name
   default_playlist: !input default_playlist
   default_volume: !input default_volume
-  connect_delay: !input connect_delay
+  audio: !input speaker_audio
+  connect_timeout: !input connect_timeout
   uri: "{{ playlist if playlist is defined and playlist else default_playlist }}"
   level: "{{ (volume if volume is defined and volume not in [none, ''] else default_volume) | float / 100 }}"
   # An account is busy if it's playing on any device other than ours.
@@ -93,13 +101,20 @@ sequence:
       - stop: Every Spotify account is playing on another device
         error: true
 
-  - if: "{{ is_state(speaker, 'off') }}"
+  # Turning the speaker "on" also reconnects its audio if it's on but lost the
+  # connection (UE BOOM integration >= 0.2), so do it unless audio is up.
+  - if: "{{ not is_state(audio, 'on') }}"
     then:
       - action: switch.turn_on
         target:
           entity_id: "{{ speaker }}"
+      - wait_template: "{{ is_state(audio, 'on') }}"
+        timeout:
+          seconds: "{{ connect_timeout }}"
+        continue_on_timeout: false
+      # The audio server needs a moment to pick up the new Bluetooth sink.
       - delay:
-          seconds: "{{ connect_delay }}"
+          seconds: 2
 
   # Make our client the account's active device first: play_media only targets
   # the active device (with nothing active it picks the account's first device).

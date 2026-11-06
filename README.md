@@ -18,8 +18,9 @@ Home Assistant. Built for a UE BOOM 3 on a Docker host, but any A2DP speaker wor
   speaker as it connects and disconnects.
 - **[ha-ueboom](https://github.com/milliamp/ha-ueboom):** switches a UE BOOM on and off over BLE from HA. On
   power-on the speaker connects its audio to the host by itself.
-- **`ha/blueprints/script/boombox_play.yaml`:** switches the speaker on, picks the first account (by name) that
-  isn't playing on another device, moves its playback to "Boom" and starts a playlist.
+- **`ha/blueprints/script/boombox_play.yaml`:** switches the speaker on (or reconnects its audio), waits for
+  its *Audio connected* sensor, picks the first account (by name) that isn't playing on another device, moves its
+  playback to "Boom" and starts a playlist. Needs ha-ueboom ≥ 0.2.
 
 ## Setup
 
