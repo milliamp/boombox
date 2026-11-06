@@ -163,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(409, {"error": "speaker not connected"})
             gen = new_generation()
             if path == "/volume":
+                global fading
+                fading = False  # any running fade stops (new generation)
                 set_volume(sink["name"], float(body["volume"]))
             else:
                 start = body.get("from")
