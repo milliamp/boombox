@@ -88,7 +88,10 @@ If the speaker is connected to someone else's phone, the play blueprint leaves i
 
 The play blueprint switches to Boom right after switching the speaker on. HA's Spotify integration refreshes
 its device list only every 5 minutes, and `select_source` ignores devices it doesn't know yet, so it needs a
-small patch to refresh the list first (`homeassistant` repo of the author: `patches/spotify`).
+small change to refresh the list first: in `homeassistant/components/spotify/media_player.py`,
+`async_select_source` starts with `await self.devices.async_refresh()` (installed as a
+`custom_components/spotify` copy of the built-in integration). Without it, switching to Boom works only once
+HA's next device refresh has seen it.
 
 ## Notes
 
