@@ -20,7 +20,12 @@ Home Assistant. Built for a UE BOOM 3 on a Docker host, but any A2DP speaker wor
   power-on the speaker connects its audio to the host by itself.
 - **`ha/blueprints/script/boombox_play.yaml`:** switches the speaker on (or reconnects its audio), waits for
   its *Audio connected* sensor, picks the first account (by name) that isn't playing on another device, moves its
-  playback to "Boom" and starts a playlist. Needs ha-ueboom ≥ 0.2.
+  playback to "Boom" and starts a playlist. The speaker starts silent and fades in once the music plays.
+  Needs ha-ueboom ≥ 0.2.
+- **`ha/blueprints/script/boombox_stop.yaml`:** fades the speaker out (default 30 s), pauses Spotify if it's still
+  playing on "Boom", puts the speaker volume back and switches the speaker off.
+- **Speaker volume:** the PulseAudio container serves the speaker's own volume on `127.0.0.1:8090` (set, and
+  fade); the HA package turns it into `number.boombox_speaker_volume` and the actions the blueprints use.
 
 ## Setup
 

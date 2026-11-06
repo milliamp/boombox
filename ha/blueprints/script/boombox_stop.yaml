@@ -1,0 +1,105 @@
+blueprint:
+  name: Boombox - fade out and switch the speaker off
+  description: >-
+    Fades the speaker out, pauses Spotify on any account that's playing on the
+    boombox client (accounts playing elsewhere are left alone), puts the
+    speaker's volume back for next time and switches the speaker off. The
+    speaker volume needs the boombox HA package; without it the speaker just
+    switches off.
+  domain: script
+  source_url: https://github.com/milliamp/boombox/blob/main/ha/blueprints/script/boombox_stop.yaml
+  input:
+    speaker_power:
+      name: Speaker power switch
+      selector:
+        entity:
+          domain: switch
+    speaker_volume_sensor:
+      name: Speaker volume sensor
+      description: sensor.boombox_speaker_volume from the boombox HA package
+      default: sensor.boombox_speaker_volume
+      selector:
+        entity:
+          domain: sensor
+    spotify_players:
+      name: Spotify accounts
+      selector:
+        entity:
+          domain: media_player
+          integration: spotify
+          multiple: true
+    device_name:
+      name: Spotify device name
+      default: Boom
+      selector:
+        text:
+    fade_seconds:
+      name: Fade-out (seconds)
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: s
+
+mode: restart
+
+fields:
+  fade:
+    name: Fade-out seconds
+    description: Blank = the blueprint's default, 0 = no fade
+    required: false
+    selector:
+      number:
+        min: 0
+        max: 120
+        unit_of_measurement: s
+
+variables:
+  speaker: !input speaker_power
+  volume_sensor: !input speaker_volume_sensor
+  all_players: !input spotify_players
+  device: !input device_name
+  default_fade: !input fade_seconds
+  fade_for: >-
+    {{ (fade if fade is defined and fade not in [none, ''] else default_fade) | float }}
+  # Put this back once paused, so the speaker isn't silent next time (e.g. a
+  # phone connecting to it directly).
+  restore: "{{ states(volume_sensor) | float(-1) }}"
+  ours: >-
+    {{ expand(all_players) | selectattr('state', 'eq', 'playing')
+       | selectattr('attributes.source', 'eq', device) | map(attribute='entity_id') | list }}
+
+sequence:
+  - if: "{{ ours and fade_for > 0 and restore > 0 }}"
+    then:
+      - action: rest_command.boombox_speaker_fade
+        continue_on_error: true
+        data:
+          to: 0
+          seconds: "{{ fade_for }}"
+      - delay:
+          seconds: "{{ fade_for + 0.5 }}"
+  # Only what's (still) playing on our client: playback that moved to another
+  # device in the meantime keeps going.
+  - variables:
+      ours: >-
+        {{ expand(all_players) | selectattr('state', 'eq', 'playing')
+           | selectattr('attributes.source', 'eq', device) | map(attribute='entity_id') | list }}
+  - if: "{{ ours }}"
+    then:
+      - action: media_player.media_pause
+        continue_on_error: true
+        target:
+          entity_id: "{{ ours }}"
+      - delay:
+          seconds: 1
+  - if: "{{ restore > 0 }}"
+    then:
+      - action: rest_command.boombox_speaker_volume
+        continue_on_error: true
+        data:
+          volume: "{{ restore }}"
+  - action: switch.turn_off
+    target:
+      entity_id: "{{ speaker }}"

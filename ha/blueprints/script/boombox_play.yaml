@@ -189,6 +189,31 @@ sequence:
       - stop: No Spotify account is free (all missing or playing on another device)
         response_variable: result
 
+  - if: "{{ not already_playing }}"
+    then:
+      # Spotify can still be "playing" on our client while the speaker is off
+      # (into no speaker). Pause it first, or the music would blast out the
+      # moment the speaker connects, before the volume is down.
+      - if: "{{ is_state(account, 'playing') and state_attr(account, 'source') == device }}"
+        then:
+          - action: media_player.media_pause
+            target:
+              entity_id: "{{ account }}"
+          - wait_template: "{{ not is_state(account, 'playing') }}"
+            timeout: 5
+            continue_on_timeout: true
+      # Speaker volume, armed before the speaker is on: the volume API holds it
+      # at 0 from the moment the speaker connects (it restores its own last
+      # volume), then fades in once the music actually plays. Optional: carries
+      # on without the boombox package.
+      - action: rest_command.boombox_speaker_fade
+        continue_on_error: true
+        data:
+          from: "{{ 0 if fade_for > 0 else speaker_level }}"
+          to: "{{ speaker_level }}"
+          seconds: "{{ fade_for }}"
+          wait: "{{ connect_timeout + 30 }}"
+
   # Turning the speaker "on" also reconnects its audio if it's on but lost the
   # connection (UE BOOM integration >= 0.2), so do it unless audio is up.
   - if: "{{ powered_on }}"
@@ -200,29 +225,9 @@ sequence:
         timeout:
           seconds: "{{ connect_timeout }}"
         continue_on_timeout: false
-      # The audio server needs a moment to pick up the new Bluetooth sink.
+      # Let the audio server pick up the new Bluetooth sink and settle at 0.
       - delay:
-          seconds: 2
-
-  # Speaker volume: start silent and fade in once audio flows (the volume API
-  # waits for a playing stream), or just set it. Optional: carries on without
-  # the boombox package.
-  - if: "{{ not already_playing }}"
-    then:
-      - if: "{{ fade_for > 0 }}"
-        then:
-          - action: rest_command.boombox_speaker_fade
-            continue_on_error: true
-            data:
-              from: 0
-              to: "{{ speaker_level }}"
-              seconds: "{{ fade_for }}"
-              wait: 20
-        else:
-          - action: rest_command.boombox_speaker_volume
-            continue_on_error: true
-            data:
-              volume: "{{ speaker_level }}"
+          seconds: 3
 
   # Make our client the account's active device first: play_media only targets
   # the active device (with nothing active it picks the account's first device).

@@ -9,8 +9,10 @@ volume (A2DP absolute volume), so the speaker's buttons change it too.
   POST /volume  {"volume": 0-100}                 set it now (stops a fade)
   POST /fade    {"to": 0-100, "seconds": 10,      fade from "from" (default:
                  "from": 0-100, "wait": 20}       the current volume) to "to".
-                With "wait", first set "from" and wait up to that many seconds
-                for a client to start playing, so the fade starts with the music.
+                With "wait", wait up to that many seconds for the speaker to
+                connect (it may still be off) and a client to start playing,
+                holding the volume at "from" meanwhile, so the fade starts with
+                the music and the speaker's own restored volume never plays.
 
 Listens on 127.0.0.1 only (the container uses host networking).
 """
@@ -93,26 +95,38 @@ def new_generation() -> int:
         return fade_generation
 
 
-def fade(gen: int, sink: str, start: float | None, to: float, seconds: float, wait: float) -> None:
+def fade(gen: int, start: float | None, to: float, seconds: float, wait: float) -> None:
+    """Fade the speaker to `to`.
+
+    With `wait`, first wait (up to `wait` seconds in all) for the speaker to
+    connect and for a client to start playing, holding the volume at `start`
+    meanwhile: the speaker restores its own last volume when it connects.
+    """
     global fading
     fading = True
     try:
-        if start is not None:
-            set_volume(sink, start)
         deadline = time.monotonic() + wait
-        while wait and not playing() and time.monotonic() < deadline:
+        sink = bluetooth_sink()
+        while wait and time.monotonic() < deadline:
             if gen != fade_generation:
                 return
+            if sink:
+                if start is not None and sink_volume(sink) != round(start):
+                    set_volume(sink["name"], start)
+                if playing():
+                    break
             time.sleep(STEP)
-        current = bluetooth_sink()
-        if not current or current["name"] != sink:
+            sink = bluetooth_sink()
+        if not sink:
             return
-        begin = sink_volume(current) if start is None else start
+        if start is not None:
+            set_volume(sink["name"], start)
+        begin = sink_volume(sink) if start is None else start
         steps = max(1, round(seconds / STEP))
         for n in range(1, steps + 1):
             if gen != fade_generation:
                 return
-            set_volume(sink, begin + (to - begin) * n / steps)
+            set_volume(sink["name"], begin + (to - begin) * n / steps)
             time.sleep(STEP)
     except subprocess.SubprocessError as err:
         print(f"volume-api: fade stopped: {err}", file=sys.stderr, flush=True)
@@ -143,8 +157,9 @@ class Handler(BaseHTTPRequestHandler):
             path = self.path.split("?")[0]
             if path not in ("/volume", "/fade"):
                 return self._send(404, {"error": "not found"})
+            wait = float(body.get("wait", 0)) if path == "/fade" else 0
             sink = bluetooth_sink()
-            if not sink:
+            if not sink and not wait:
                 return self._send(409, {"error": "speaker not connected"})
             gen = new_generation()
             if path == "/volume":
@@ -155,11 +170,10 @@ class Handler(BaseHTTPRequestHandler):
                     target=fade,
                     args=(
                         gen,
-                        sink["name"],
                         None if start in (None, "") else float(start),
                         float(body["to"]),
                         float(body.get("seconds", 10)),
-                        float(body.get("wait", 0)),
+                        wait,
                     ),
                     daemon=True,
                 ).start()
