@@ -189,6 +189,36 @@ sequence:
       - stop: No Spotify account is free (all missing or playing on another device)
         response_variable: result
 
+  # The speaker's "audio connected" means connected to anything. If it's
+  # connected but not to us, someone is using it from their own device: leave
+  # it alone rather than taking it over. (Skipped without the boombox package.)
+  - if: "{{ is_state(audio, 'on') }}"
+    then:
+      - action: rest_command.boombox_speaker_status
+        continue_on_error: true
+        response_variable: speaker_status
+      - if: >-
+          {{ speaker_status is defined and speaker_status.status == 200
+             and not speaker_status.content.connected }}
+        then:
+          # It may be just connecting to us: look again.
+          - delay:
+              seconds: 5
+          - action: rest_command.boombox_speaker_status
+            continue_on_error: true
+            response_variable: speaker_status
+          - if: >-
+              {{ speaker_status is defined and speaker_status.status == 200
+                 and not speaker_status.content.connected
+                 and is_state(audio, 'on') }}
+            then:
+              - variables:
+                  result:
+                    account: ""
+                    powered_on: false
+              - stop: The speaker is in use by another device
+                response_variable: result
+
   - if: "{{ not already_playing }}"
     then:
       # Spotify can still be "playing" on our client while the speaker is off
@@ -212,7 +242,7 @@ sequence:
           from: "{{ 0 if fade_for > 0 else speaker_level }}"
           to: "{{ speaker_level }}"
           seconds: "{{ fade_for }}"
-          wait: "{{ connect_timeout + 30 }}"
+          wait: "{{ connect_timeout + 60 }}"
 
   # Turning the speaker "on" also reconnects its audio if it's on but lost the
   # connection (UE BOOM integration >= 0.2), so do it unless audio is up.
@@ -231,20 +261,28 @@ sequence:
 
   # Make our client the account's active device first: play_media only targets
   # the active device (with nothing active it picks the account's first device).
-  # Transferring keeps the account's queue and play/pause state.
-  - if: "{{ state_attr(account, 'source') != device }}"
+  # Transferring keeps the account's queue and play/pause state. The boombox
+  # clients only run while the speaker is connected, so after switching it on
+  # ours takes a few seconds to show up in Spotify: keep trying for ~45 s.
+  # (Needs the Spotify integration to refresh its device list on select_source;
+  # see patches/spotify in the README.)
+  - if: "{{ powered_on or state_attr(account, 'source') != device }}"
     then:
-      - action: media_player.select_source
-        target:
-          entity_id: "{{ account }}"
-        data:
-          source: "{{ device }}"
-      - wait_template: "{{ state_attr(account, 'source') == device }}"
-        timeout: 15
-        continue_on_timeout: true
-      - action: homeassistant.update_entity
-        target:
-          entity_id: "{{ account }}"
+      - repeat:
+          sequence:
+            - action: media_player.select_source
+              continue_on_error: true
+              target:
+                entity_id: "{{ account }}"
+              data:
+                source: "{{ device }}"
+            - wait_template: "{{ state_attr(account, 'source') == device }}"
+              timeout: 5
+              continue_on_timeout: true
+            - action: homeassistant.update_entity
+              target:
+                entity_id: "{{ account }}"
+          until: "{{ state_attr(account, 'source') == device or repeat.index >= 8 }}"
 
   - if: "{{ level != 'none' }}"
     then:

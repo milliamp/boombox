@@ -8,6 +8,10 @@ screenshot of the virtual display, decodes any QR code and serves:
   GET /status  -> {"logged_in": bool, "login_url": str|null, "code": str|null,
                    "client_running": bool, "checked_at": iso8601}
   GET /qr.png  -> the login QR code (re-rendered, crisp), 404 when logged in
+
+While the client is stopped (no speaker connected, see entrypoint.sh) it counts
+as logged in if it has a saved login. While the QR code shows it writes
+NEEDS_LOGIN, which keeps the client running until someone logs in.
 """
 
 from __future__ import annotations
@@ -24,6 +28,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("LOGIN_PORT", "8091"))
 INTERVAL = float(os.environ.get("LOGIN_CHECK_INTERVAL", "10"))
 DISPLAY = os.environ["DISPLAY"]
+PREFS = os.path.expanduser("~/.config/spotify/prefs")
+NEEDS_LOGIN = "/tmp/boombox-needs-login"
 PAIR_RE = re.compile(r"^https://(?:www\.)?spotify\.com/pair\?code=([A-Z0-9]+)")
 
 state: dict = {
@@ -47,6 +53,14 @@ def client_running() -> bool:
     return bool(run(["pgrep", "-f", "/usr/share/spotify/spotify"]).strip())
 
 
+def saved_login() -> bool:
+    try:
+        with open(PREFS, encoding="utf-8", errors="replace") as f:
+            return any(line.startswith("autologin.username=") for line in f)
+    except OSError:
+        return False
+
+
 def check() -> None:
     global qr_png
     running = client_running()
@@ -59,10 +73,16 @@ def check() -> None:
                     url = line.strip()
                     break
     png = run(["qrencode", "-o", "-", "-s", "10", "-m", "2", url]) if url else None
+    # Logged in = the client runs and shows no login QR code, or it's stopped
+    # (waiting for a speaker) with a saved login.
+    logged_in = (url is None) if running else saved_login()
+    if url:
+        open(NEEDS_LOGIN, "w").close()
+    elif running and os.path.exists(NEEDS_LOGIN):
+        os.remove(NEEDS_LOGIN)
     with lock:
-        # Logged in = the client runs and shows no login QR code.
         state.update(
-            logged_in=running and url is None,
+            logged_in=logged_in,
             login_url=url,
             code=PAIR_RE.match(url).group(1) if url else None,
             client_running=running,

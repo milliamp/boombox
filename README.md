@@ -78,7 +78,17 @@ For debugging you can set `VNC_PASSWORD` to get noVNC at `http://<host>:6091/vnc
 
 ## Everyday use
 
-Anyone on either account can open Spotify, tap the devices icon and pick **Boom**. Spotify Jam works too.
+**Boom** shows up in Spotify only while the speaker is connected to the server, like any real speaker. Switch the
+speaker on (its power button or HA) and after 10-15 s anyone on either account can tap the devices icon and pick
+**Boom**. Spotify Jam works too. When the speaker goes off, the clients quit after 30 s
+(`SPEAKER_GRACE`), so Boom disappears and phones fall back to themselves. A client that isn't logged in keeps
+running so you can log in at any time. `FOLLOW_SPEAKER=0` keeps the clients running all the time.
+
+If the speaker is connected to someone else's phone, the play blueprint leaves it alone instead of taking it over.
+
+The play blueprint switches to Boom right after switching the speaker on. HA's Spotify integration refreshes
+its device list only every 5 minutes, and `select_source` ignores devices it doesn't know yet, so it needs a
+small patch to refresh the list first (`homeassistant` repo of the author: `patches/spotify`).
 
 ## Notes
 

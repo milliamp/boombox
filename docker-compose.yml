@@ -4,6 +4,8 @@
 # Environment variables (Portainer "Environment variables" section):
 #   DATA_DIR        host folder for state            (default /data/boombox)
 #   (The pulseaudio container serves the speaker volume for HA on 127.0.0.1:8090.)
+#   (Spotify clients run only while a speaker is connected: FOLLOW_SPEAKER /
+#    SPEAKER_GRACE in spotify/entrypoint.sh.)
 #   VNC_PASSWORD    optional: enables noVNC on ports 6091/6092 for debugging.
 #                   Logging in is done from Home Assistant (login-helper on
 #                   127.0.0.1:8091/8092, see ha/packages/boombox.yaml).

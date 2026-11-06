@@ -48,6 +48,9 @@ rest:
         json_attributes: [login_url, code, client_running, checked_at]
 
 rest_command:
+  boombox_speaker_status:
+    url: http://127.0.0.1:8090/status
+    method: GET
   boombox_speaker_volume:
     url: http://127.0.0.1:8090/volume
     method: POST
