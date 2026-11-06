@@ -12,7 +12,12 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl gn
       libpulse0 pulseaudio-utils dbus-x11 fonts-dejavu-core procps \
       python3 imagemagick zbar-tools qrencode >/dev/null \
  && rm -rf /var/lib/apt/lists/*
-RUN useradd -m -u 1000 spotify
+# Spotify encrypts its saved login with the machine id. Keep it in the data
+# volume (created by entrypoint.sh) so logins survive image rebuilds.
+RUN useradd -m -u 1000 spotify \
+ && rm -f /etc/machine-id /var/lib/dbus/machine-id \
+ && ln -s /home/spotify/.machine-id /etc/machine-id \
+ && ln -s /home/spotify/.machine-id /var/lib/dbus/machine-id
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 login-helper.py /usr/local/bin/login-helper
 USER spotify

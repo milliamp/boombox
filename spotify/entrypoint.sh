@@ -10,6 +10,9 @@ export DISPLAY=":${DISPLAY_NUM}"
 export PULSE_SERVER="${PULSE_SERVER:-unix:/run/pulse/native}"
 export HOME=/home/spotify
 
+# Stable machine id (see Dockerfile): generated once per data volume.
+[ -s "$HOME/.machine-id" ] || dbus-uuidgen > "$HOME/.machine-id"
+
 rm -f "/tmp/.X${DISPLAY_NUM}-lock" "/tmp/.X11-unix/X${DISPLAY_NUM}"
 Xvfb "$DISPLAY" -screen 0 1280x800x24 -nolisten tcp &
 sleep 1
