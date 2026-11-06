@@ -128,10 +128,15 @@ variables:
   powered_on: "{{ not is_state(audio, 'on') }}"
 
 sequence:
+  # Nothing to do if no account is free; report that rather than failing.
   - if: "{{ not account }}"
     then:
+      - variables:
+          result:
+            account: ""
+            powered_on: false
       - stop: No Spotify account is free (all missing or playing on another device)
-        error: true
+        response_variable: result
 
   # Turning the speaker "on" also reconnects its audio if it's on but lost the
   # connection (UE BOOM integration >= 0.2), so do it unless audio is up.
