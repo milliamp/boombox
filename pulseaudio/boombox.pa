@@ -1,0 +1,16 @@
+# Clients (the Spotify containers) connect over this socket; it's only exposed
+# to containers that mount the socket directory.
+load-module module-native-protocol-unix auth-anonymous=1 socket=/run/pulse/native
+
+# Remember per-device volume across reconnects/restarts (state in /root/.config/pulse).
+load-module module-device-restore
+load-module module-stream-restore restore_device=false
+
+# Bluetooth: register as an A2DP source with the host's BlueZ, and move streams
+# to the speaker when it connects.
+load-module module-bluetooth-policy
+load-module module-bluetooth-discover
+load-module module-switch-on-connect
+
+# Keep a (null) sink around while no speaker is connected, so clients don't error.
+load-module module-always-sink

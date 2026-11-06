@@ -1,0 +1,131 @@
+blueprint:
+  name: Boombox - play Spotify on the speaker
+  description: >-
+    Switches the Bluetooth speaker on, picks the first Spotify account (sorted
+    by name) that isn't playing on another device, moves that account's
+    playback to its boombox client and starts a playlist.
+  domain: script
+  source_url: https://github.com/milliamp/boombox/blob/main/ha/blueprints/script/boombox_play.yaml
+  input:
+    speaker_power:
+      name: Speaker power switch
+      description: e.g. the UE BOOM integration's Power switch
+      selector:
+        entity:
+          domain: switch
+    spotify_players:
+      name: Spotify accounts
+      description: The Spotify integration's media player for each account
+      selector:
+        entity:
+          domain: media_player
+          integration: spotify
+          multiple: true
+    device_name:
+      name: Spotify device name
+      description: Name the boombox clients show in Spotify (their hostname)
+      default: Boom
+      selector:
+        text:
+    default_playlist:
+      name: Default playlist
+      description: Spotify URI or open.spotify.com link
+      selector:
+        text:
+    default_volume:
+      name: Default volume (%)
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    connect_delay:
+      name: Seconds to wait after power-on
+      description: Time for the speaker to wake and connect its audio
+      default: 8
+      selector:
+        number:
+          min: 0
+          max: 30
+
+mode: queued
+max: 3
+
+fields:
+  playlist:
+    name: Playlist
+    description: Spotify URI or open.spotify.com link (blank = default)
+    required: false
+    selector:
+      text:
+  volume:
+    name: Volume
+    required: false
+    selector:
+      number:
+        min: 0
+        max: 100
+        unit_of_measurement: "%"
+
+variables:
+  speaker: !input speaker_power
+  players: !input spotify_players
+  device: !input device_name
+  default_playlist: !input default_playlist
+  default_volume: !input default_volume
+  connect_delay: !input connect_delay
+  uri: "{{ playlist if playlist is defined and playlist else default_playlist }}"
+  level: "{{ (volume if volume is defined and volume not in [none, ''] else default_volume) | float / 100 }}"
+  # An account is busy if it's playing on any device other than ours.
+  account: >-
+    {% set ns = namespace(pick='') %}
+    {% for p in expand(players) | sort(attribute='name') %}
+      {% if not ns.pick and not (p.state == 'playing' and p.attributes.source != device) %}
+        {% set ns.pick = p.entity_id %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.pick }}
+
+sequence:
+  - if: "{{ not account }}"
+    then:
+      - stop: Every Spotify account is playing on another device
+        error: true
+
+  - if: "{{ is_state(speaker, 'off') }}"
+    then:
+      - action: switch.turn_on
+        target:
+          entity_id: "{{ speaker }}"
+      - delay:
+          seconds: "{{ connect_delay }}"
+
+  # Make our client the account's active device first: play_media only targets
+  # the active device (with nothing active it picks the account's first device).
+  - if: "{{ state_attr(account, 'source') != device }}"
+    then:
+      - action: media_player.select_source
+        target:
+          entity_id: "{{ account }}"
+        data:
+          source: "{{ device }}"
+      - wait_template: "{{ state_attr(account, 'source') == device }}"
+        timeout: 15
+        continue_on_timeout: true
+      - action: homeassistant.update_entity
+        target:
+          entity_id: "{{ account }}"
+
+  - action: media_player.volume_set
+    target:
+      entity_id: "{{ account }}"
+    data:
+      volume_level: "{{ level }}"
+
+  - action: media_player.play_media
+    target:
+      entity_id: "{{ account }}"
+    data:
+      media_content_id: "{{ uri }}"
+      media_content_type: playlist
