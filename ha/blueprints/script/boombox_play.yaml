@@ -173,9 +173,10 @@ variables:
   # Did this run switch the speaker on (or reconnect it)? Callers use this to
   # decide whether to switch it off again later.
   powered_on: "{{ not is_state(audio, 'on') }}"
-  # Already playing on our speaker: leave the speaker volume alone.
+  # Already playing on our speaker (and audible): leave the speaker volume alone.
   already_playing: >-
-    {{ account != '' and is_state(account, 'playing') and state_attr(account, 'source') == device }}
+    {{ account != '' and is_state(audio, 'on') and is_state(account, 'playing')
+       and state_attr(account, 'source') == device }}
 
 sequence:
   # Nothing to do if no account is free; report that rather than failing.
