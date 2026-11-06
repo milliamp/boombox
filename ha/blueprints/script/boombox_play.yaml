@@ -1,9 +1,11 @@
 blueprint:
   name: Boombox - play Spotify on the speaker
   description: >-
-    Switches the Bluetooth speaker on, picks the first Spotify account (sorted
-    by name) that isn't playing on another device, moves that account's
-    playback to its boombox client and starts a playlist.
+    Switches the Bluetooth speaker on (or reconnects its audio), picks the
+    first Spotify account that isn't playing on another device, moves that
+    account's playback to its boombox client and starts a playlist, or resumes
+    what the account was playing. Returns {account, powered_on} so callers can
+    turn the speaker off again only if this script turned it on.
   domain: script
   source_url: https://github.com/milliamp/boombox/blob/main/ha/blueprints/script/boombox_play.yaml
   input:
@@ -22,7 +24,9 @@ blueprint:
           device_class: connectivity
     spotify_players:
       name: Spotify accounts
-      description: The Spotify integration's media player for each account
+      description: >-
+        The Spotify integration's media player for each account. Without an
+        `accounts` field they're tried in name order.
       selector:
         entity:
           domain: media_player
@@ -36,7 +40,9 @@ blueprint:
         text:
     default_playlist:
       name: Default playlist
-      description: Spotify URI or open.spotify.com link
+      description: >-
+        Spotify URI or open.spotify.com link, used when no playlist is given
+        (or when resuming but the account has nothing to resume)
       selector:
         text:
     default_volume:
@@ -62,12 +68,29 @@ max: 3
 fields:
   playlist:
     name: Playlist
-    description: Spotify URI or open.spotify.com link (blank = default)
+    description: Spotify URI or open.spotify.com link (blank = default, or resume)
     required: false
     selector:
       text:
+  resume:
+    name: Resume
+    description: With no playlist, continue what the account was playing instead of the default
+    required: false
+    default: false
+    selector:
+      boolean:
+  accounts:
+    name: Accounts (in order of preference)
+    description: Overrides the blueprint's account list and order
+    required: false
+    selector:
+      entity:
+        domain: media_player
+        integration: spotify
+        multiple: true
   volume:
     name: Volume
+    description: Blank = leave the volume as it is when resuming, else the default
     required: false
     selector:
       number:
@@ -77,33 +100,42 @@ fields:
 
 variables:
   speaker: !input speaker_power
-  players: !input spotify_players
+  audio: !input speaker_audio
+  all_players: !input spotify_players
   device: !input device_name
   default_playlist: !input default_playlist
   default_volume: !input default_volume
-  audio: !input speaker_audio
   connect_timeout: !input connect_timeout
-  uri: "{{ playlist if playlist is defined and playlist else default_playlist }}"
-  level: "{{ (volume if volume is defined and volume not in [none, ''] else default_volume) | float / 100 }}"
-  # An account is busy if it's playing on any device other than ours.
+  want_resume: "{{ resume | default(false) | bool and not (playlist | default('')) }}"
+  uri: "{{ playlist if playlist | default('') else default_playlist }}"
+  level: >-
+    {% if volume is defined and volume not in [none, ''] %}{{ volume | float / 100 }}
+    {% elif want_resume %}none{% else %}{{ default_volume | float / 100 }}{% endif %}
+  candidates: >-
+    {% if accounts is defined and accounts %}{{ accounts if accounts is list else [accounts] }}
+    {% else %}{{ expand(all_players) | sort(attribute='name') | map(attribute='entity_id') | list }}{% endif %}
+  # The first existing account that isn't playing on a device other than ours.
   account: >-
     {% set ns = namespace(pick='') %}
-    {% for p in expand(players) | sort(attribute='name') %}
+    {% for p in expand(candidates) %}
       {% if not ns.pick and not (p.state == 'playing' and p.attributes.source != device) %}
         {% set ns.pick = p.entity_id %}
       {% endif %}
     {% endfor %}
     {{ ns.pick }}
+  # Did this run switch the speaker on (or reconnect it)? Callers use this to
+  # decide whether to switch it off again later.
+  powered_on: "{{ not is_state(audio, 'on') }}"
 
 sequence:
   - if: "{{ not account }}"
     then:
-      - stop: Every Spotify account is playing on another device
+      - stop: No Spotify account is free (all missing or playing on another device)
         error: true
 
   # Turning the speaker "on" also reconnects its audio if it's on but lost the
   # connection (UE BOOM integration >= 0.2), so do it unless audio is up.
-  - if: "{{ not is_state(audio, 'on') }}"
+  - if: "{{ powered_on }}"
     then:
       - action: switch.turn_on
         target:
@@ -118,6 +150,7 @@ sequence:
 
   # Make our client the account's active device first: play_media only targets
   # the active device (with nothing active it picks the account's first device).
+  # Transferring keeps the account's queue and play/pause state.
   - if: "{{ state_attr(account, 'source') != device }}"
     then:
       - action: media_player.select_source
@@ -132,15 +165,33 @@ sequence:
         target:
           entity_id: "{{ account }}"
 
-  - action: media_player.volume_set
-    target:
-      entity_id: "{{ account }}"
-    data:
-      volume_level: "{{ level }}"
+  - if: "{{ level != 'none' }}"
+    then:
+      - action: media_player.volume_set
+        target:
+          entity_id: "{{ account }}"
+        data:
+          volume_level: "{{ level }}"
 
-  - action: media_player.play_media
-    target:
-      entity_id: "{{ account }}"
-    data:
-      media_content_id: "{{ uri }}"
-      media_content_type: playlist
+  - if: "{{ want_resume and state_attr(account, 'media_content_id') }}"
+    then:
+      # Continue the account's current playlist/album (from the current track).
+      - if: "{{ not is_state(account, 'playing') }}"
+        then:
+          - action: media_player.media_play
+            target:
+              entity_id: "{{ account }}"
+    else:
+      - action: media_player.play_media
+        target:
+          entity_id: "{{ account }}"
+        data:
+          media_content_id: "{{ uri }}"
+          media_content_type: playlist
+
+  - variables:
+      result:
+        account: "{{ account }}"
+        powered_on: "{{ powered_on }}"
+  - stop: Playing
+    response_variable: result
