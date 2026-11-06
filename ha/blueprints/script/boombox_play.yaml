@@ -254,7 +254,7 @@ sequence:
         data:
           volume_level: "{{ level }}"
 
-  - if: "{{ want_resume and state_attr(account, 'media_content_id') }}"
+  - if: "{{ want_resume and (state_attr(account, 'media_content_id') or '') != '' }}"
     then:
       # Continue the account's current playlist/album (from the current track).
       - if: "{{ not is_state(account, 'playing') }}"

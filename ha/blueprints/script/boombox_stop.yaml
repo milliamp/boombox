@@ -71,7 +71,7 @@ variables:
        | selectattr('attributes.source', 'eq', device) | map(attribute='entity_id') | list }}
 
 sequence:
-  - if: "{{ ours and fade_for > 0 and restore > 0 }}"
+  - if: "{{ ours | count > 0 and fade_for > 0 and restore > 0 }}"
     then:
       - action: rest_command.boombox_speaker_fade
         continue_on_error: true
@@ -82,19 +82,27 @@ sequence:
           seconds: "{{ fade_for + 0.5 }}"
   # Only what's (still) playing on our client: playback that moved to another
   # device in the meantime keeps going.
+  # (A template condition that renders a list is always false, hence | count.)
   - variables:
-      ours: >-
+      still_ours: >-
         {{ expand(all_players) | selectattr('state', 'eq', 'playing')
            | selectattr('attributes.source', 'eq', device) | map(attribute='entity_id') | list }}
-  - if: "{{ ours }}"
+  - if: "{{ still_ours | count > 0 }}"
     then:
       - action: media_player.media_pause
         continue_on_error: true
         target:
-          entity_id: "{{ ours }}"
-      - delay:
-          seconds: 1
-  - if: "{{ restore > 0 }}"
+          entity_id: "{{ still_ours }}"
+      - wait_template: >-
+          {{ expand(still_ours) | selectattr('state', 'eq', 'playing')
+             | selectattr('attributes.source', 'eq', device) | list | count == 0 }}
+        timeout: 10
+        continue_on_timeout: true
+  # Put the volume back only once nothing plays on our client any more, or it
+  # would blast out before the speaker switches off.
+  - if: >-
+      {{ restore > 0 and expand(all_players) | selectattr('state', 'eq', 'playing')
+         | selectattr('attributes.source', 'eq', device) | list | count == 0 }}
     then:
       - action: rest_command.boombox_speaker_volume
         continue_on_error: true
