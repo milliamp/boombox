@@ -8,8 +8,22 @@
 # (reachable because HA runs with host networking). While a client is logged
 # out you get a notification with a link: tap it on a phone that's logged in to
 # the Spotify account you want, and approve. Or scan the QR image entity.
+#
+# The boombox-pulseaudio container serves the speaker's own volume on
+# 127.0.0.1:8090: number.boombox_speaker_volume, plus rest_command actions for
+# the script blueprint (set, and fade in once the music starts).
 
 rest:
+  - resource: http://127.0.0.1:8090/status
+    scan_interval: 15
+    timeout: 10
+    sensor:
+      - name: Boombox speaker volume
+        unique_id: boombox_speaker_volume
+        icon: mdi:speaker
+        unit_of_measurement: "%"
+        value_template: "{{ value_json.volume if value_json.connected else none }}"
+        json_attributes: [connected, sink, muted, playing, fading]
   - resource: http://127.0.0.1:8091/status
     scan_interval: 30
     timeout: 10
@@ -33,7 +47,41 @@ rest:
              ('needs_login' if value_json.login_url else 'starting') }}
         json_attributes: [login_url, code, client_running, checked_at]
 
+rest_command:
+  boombox_speaker_volume:
+    url: http://127.0.0.1:8090/volume
+    method: POST
+    content_type: application/json
+    payload: '{"volume": {{ volume | float }}}'
+  # Fade from `from` (blank = the current volume) to `to` over `seconds`. With
+  # `wait`, set `from` first and wait up to that many seconds for audio to start.
+  boombox_speaker_fade:
+    url: http://127.0.0.1:8090/fade
+    method: POST
+    content_type: application/json
+    payload: >-
+      {"to": {{ to | float }}, "seconds": {{ seconds | default(10) | float }},
+       "wait": {{ wait | default(0) | float }}
+       {%- if from is defined and from not in [none, ''] %}, "from": {{ from | float }}{% endif %}}
+
 template:
+  - number:
+      - name: Boombox speaker volume
+        unique_id: boombox_speaker_volume_number
+        icon: mdi:speaker
+        unit_of_measurement: "%"
+        min: 0
+        max: 100
+        step: 1
+        state: "{{ states('sensor.boombox_speaker_volume') }}"
+        availability: "{{ states('sensor.boombox_speaker_volume') | is_number }}"
+        set_value:
+          - action: rest_command.boombox_speaker_volume
+            data:
+              volume: "{{ value }}"
+          - action: homeassistant.update_entity
+            target:
+              entity_id: sensor.boombox_speaker_volume
   - image:
       # The URL changes with the pairing code, which makes HA re-fetch it.
       - name: Boombox Spotify 1 login QR

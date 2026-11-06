@@ -4,8 +4,10 @@ blueprint:
     Switches the Bluetooth speaker on (or reconnects its audio), picks the
     first Spotify account that isn't playing on another device, moves that
     account's playback to its boombox client and starts a playlist, or resumes
-    what the account was playing. Returns {account, powered_on} so callers can
-    turn the speaker off again only if this script turned it on.
+    what the account was playing. When it starts the music it sets the speaker's
+    own volume, fading it in once the audio starts (needs the boombox HA package
+    for the speaker volume). Returns {account, powered_on} so callers can turn
+    the speaker off again only if this script turned it on.
   domain: script
   source_url: https://github.com/milliamp/boombox/blob/main/ha/blueprints/script/boombox_play.yaml
   input:
@@ -53,6 +55,26 @@ blueprint:
           min: 0
           max: 100
           unit_of_measurement: "%"
+    speaker_volume:
+      name: Speaker volume (%)
+      description: >-
+        The speaker's own volume, set when this script starts the music
+        (rest_command.boombox_speaker_* from the boombox HA package)
+      default: 40
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+    fade_seconds:
+      name: Fade-in (seconds)
+      description: Fade the speaker in from silence once the music starts (0 = off)
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: s
     connect_timeout:
       name: Seconds to wait for the audio connection
       description: Time for the speaker to wake and connect its audio
@@ -88,8 +110,26 @@ fields:
         domain: media_player
         integration: spotify
         multiple: true
+  speaker_volume:
+    name: Speaker volume
+    description: The speaker's own volume (blank = the blueprint's default)
+    required: false
+    selector:
+      number:
+        min: 0
+        max: 100
+        unit_of_measurement: "%"
+  fade:
+    name: Fade-in seconds
+    description: Blank = the blueprint's default, 0 = no fade
+    required: false
+    selector:
+      number:
+        min: 0
+        max: 60
+        unit_of_measurement: s
   volume:
-    name: Volume
+    name: Spotify volume
     description: Blank = leave the volume as it is when resuming, else the default
     required: false
     selector:
@@ -106,6 +146,13 @@ variables:
   default_playlist: !input default_playlist
   default_volume: !input default_volume
   connect_timeout: !input connect_timeout
+  default_speaker_volume: !input speaker_volume
+  default_fade: !input fade_seconds
+  speaker_level: >-
+    {{ (speaker_volume if speaker_volume is defined and speaker_volume not in [none, '']
+        else default_speaker_volume) | float }}
+  fade_for: >-
+    {{ (fade if fade is defined and fade not in [none, ''] else default_fade) | float }}
   want_resume: "{{ resume | default(false) | bool and not (playlist | default('')) }}"
   uri: "{{ playlist if playlist | default('') else default_playlist }}"
   level: >-
@@ -126,6 +173,9 @@ variables:
   # Did this run switch the speaker on (or reconnect it)? Callers use this to
   # decide whether to switch it off again later.
   powered_on: "{{ not is_state(audio, 'on') }}"
+  # Already playing on our speaker: leave the speaker volume alone.
+  already_playing: >-
+    {{ account != '' and is_state(account, 'playing') and state_attr(account, 'source') == device }}
 
 sequence:
   # Nothing to do if no account is free; report that rather than failing.
@@ -152,6 +202,26 @@ sequence:
       # The audio server needs a moment to pick up the new Bluetooth sink.
       - delay:
           seconds: 2
+
+  # Speaker volume: start silent and fade in once audio flows (the volume API
+  # waits for a playing stream), or just set it. Optional: carries on without
+  # the boombox package.
+  - if: "{{ not already_playing }}"
+    then:
+      - if: "{{ fade_for > 0 }}"
+        then:
+          - action: rest_command.boombox_speaker_fade
+            continue_on_error: true
+            data:
+              from: 0
+              to: "{{ speaker_level }}"
+              seconds: "{{ fade_for }}"
+              wait: 20
+        else:
+          - action: rest_command.boombox_speaker_volume
+            continue_on_error: true
+            data:
+              volume: "{{ speaker_level }}"
 
   # Make our client the account's active device first: play_media only targets
   # the active device (with nothing active it picks the account's first device).
