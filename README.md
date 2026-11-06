@@ -39,16 +39,19 @@ bluetoothctl
 ### 2. Stack (Portainer)
 
 **Stacks → Add stack → Repository**: `https://github.com/milliamp/boombox`, compose path `docker-compose.yml`.
-Add the environment variable `VNC_PASSWORD=<something>` for the first deploy.
+**Logging in, without VNC.** Each client runs a small *login-helper* that screenshots its own display, decodes
+Spotify's "scan to log in" QR code (a `https://spotify.com/pair?code=…` link) and serves it on
+`127.0.0.1:8091` / `:8092`, which only the host (and HA on host networking) can reach. Install
+`ha/packages/boombox.yaml` (see below). HA then notifies you while a client is logged out, with a link to tap on
+the phone of the account that client should use. It also shows the QR code as an image entity. The login is
+stored in `/data/boombox/spotify-N`.
 
-Then, for each account, open `http://<host>:6091/vnc.html` (account 1) or `:6092` (account 2), enter the
-password and **scan the QR code** with that account's phone. The "Log in" button needs a web browser, which
-the container doesn't have. The login is stored in `/data/boombox/spotify-N`.
-
-Once both accounts are logged in, remove `VNC_PASSWORD` and redeploy. That turns noVNC off.
+For debugging you can set `VNC_PASSWORD` to get noVNC at `http://<host>:6091/vnc.html` / `:6092`.
 
 ### 3. Home Assistant
 
+1. Copy `ha/packages/boombox.yaml` to `<config>/packages/` and enable packages
+   (`homeassistant: packages: !include_dir_named packages`), then restart.
 1. Install [ha-ueboom](https://github.com/milliamp/ha-ueboom) through HACS and add the speaker.
 2. Create a Spotify app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard). Set the
    redirect URI to `https://my.home-assistant.io/redirect/oauth`, select the Web API, and add each account's email
